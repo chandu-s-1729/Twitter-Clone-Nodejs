@@ -324,24 +324,31 @@ app.get("/tweets/:tweetId/replies/", authenticateToken, async (request, response
 // API 9 - GET List of all Tweets and Details of the User
 app.get("/user/tweets/", authenticateToken, async (request, response) => {
     const { username } = request;
+    const getUserIdQuery = `SELECT user_id AS userId FROM user WHERE username = '${username}';`;
+    const { userId } = await db.get(getUserIdQuery);
 
     const userTweetsQuery = `
-        SELECT 
-            tweet.tweet,
-            COUNT(like.like_id) AS likes,
-            COUNT(reply.reply_id) AS replies,
-            tweet.date_time AS dateTime
+        SELECT
+            tweet,
+            (   SELECT 
+                    COUNT(like_id)
+                FROM 
+                    like
+                WHERE 
+                    tweet_id=tweet.tweet_id
+            ) AS likes,
+            (   SELECT 
+                    COUNT(reply_id)
+                FROM 
+                    reply
+                WHERE 
+                    tweet_id=tweet.tweet_id
+            ) AS replies,
+            date_time AS dateTime
         FROM 
-            user JOIN tweet 
-                ON user.user_id = tweet.user_id
-                LEFT JOIN reply 
-                ON reply.tweet_id = tweet.tweet_id
-                LEFT JOIN like
-                ON like.tweet_id = tweet.tweet_id
+            tweet
         WHERE 
-            user.username = '${username}'
-        GROUP BY 
-            tweet.tweet_id;
+            user_id= ${userId};
     `;
 
     const userTweetsDetails = await db.all(userTweetsQuery);
