@@ -34,6 +34,42 @@ initializeDBAndServer();
 
 module.exports = app;
 
+// Middleware Function to Check Is User Following or Not
+const isUserFollowing = async (request, response, next) => { 
+    const { username} = request;
+    const { tweetId } = request.params;
+    const getUserIdQuery = `SELECT user_id AS userId FROM user WHERE username = '${username}';`;
+    const { userId } = await db.get(getUserIdQuery);
+
+    const tweetsQuery = `
+        SELECT
+            *
+        FROM 
+            tweet
+        WHERE 
+            tweet_id=${tweetId};
+    `;
+     const tweetResult =await db.get(tweetsQuery);
+
+    const userFollowersQuery = `
+        SELECT
+            *
+        FROM 
+            follower INNER JOIN user 
+                ON user.user_id = follower.following_user_id
+        WHERE 
+            follower.follower_user_id = ${userId};
+    `;
+    const userFollowers =await db.all(userFollowersQuery);
+
+    if (userFollowers.some( (item) => item.following_user_id === tweetResult.user_id)) {
+        next();
+    }else {
+        response.status(401);
+        response.send("Invalid Request");
+    }
+};
+
 // API 1 - POST User Registration 
 app.post("/register/", async (request, response) => {
   const { username, password, name, gender } = request.body;
@@ -184,46 +220,35 @@ app.get("/user/followers/", authenticateToken, async (request, response) => {
 });
 
 // API 6 - GET List of all Tweets by tweets ID
-app.get("/tweets/:tweetId/", authenticateToken, async (request, response) => {
-    const { username } = request;
+app.get("/tweets/:tweetId/", authenticateToken, isUserFollowing, async (request, response) => {
     const { tweetId } = request.params;
-    const getUserIdQuery = `SELECT user_id AS userId FROM user WHERE username = '${username}';`;
-    const { userId } = await db.get(getUserIdQuery);
-
-    const getTweetsByTweetIdQuery = `
-        SELECT 
-            tweet.tweet AS tweet,
-            COUNT(like.like_id) AS likes,
-            COUNT(reply.reply_id) AS replies,
-            tweet.date_time AS dateTime
-        FROM
-            tweet JOIN reply 
-                ON tweet.tweet_id = reply.tweet_id
-                JOIN like 
-                ON like.tweet_id = tweet.tweet_id
-        WHERE
-            tweet.tweet_id = ${tweetId} 
-            AND tweet.tweet_id 
-            IN 
-            (
-                SELECT 
-                    tweet.tweet_id
-                FROM 
-                    follower JOIN tweet
-                    ON follower.following_user_id = tweet.user_id
-                WHERE 
-                    follower.follower_user_id = ${userId}
-            );
-    `;
     
-    const tweetsByTweetId = await db.get(getTweetsByTweetIdQuery);
+    const getUserTweetByTweetIdQuery = `
+        SELECT
+            tweet,
+            (   SELECT 
+                    COUNT(like_id)
+                FROM 
+                    like
+                WHERE 
+                    tweet_id=tweet.tweet_id
+            ) AS likes,
+            (   SELECT 
+                    COUNT(reply_id)
+                FROM 
+                    reply
+                WHERE 
+                    tweet_id=tweet.tweet_id
+            ) AS replies,
+            date_time AS dateTime
+        FROM 
+            tweet
+        WHERE 
+            tweet_id= ${tweetId};
+    `;
 
-    if (tweetsByTweetId.tweet === null) {
-        response.status(401);
-        response.send("Invalid Request");
-    } else {
-        response.send(tweetsByTweetId);
-    }
+    const userTweetByTweetId = await db.get(getUserTweetByTweetIdQuery);
+    response.send(userTweetByTweetId);
 });
 
 // API 7 - GET List of all Names who like Tweet by tweets ID
